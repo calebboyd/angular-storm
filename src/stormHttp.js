@@ -38,7 +38,12 @@ function stormHttp($http, stormModels, $q, $timeout) {
                 var toFixup = add(model,stormObj,null);
                 model.data.fixup[uid] = null;
                 return promise.then(function (response) {
-                    toFixup.update(response.data, true);
+                    //update key only on return.... Cause it may have been edited...
+                    //todo fixup will need to be outsourced to function that recursively fixes related items.
+                    var key = response.data[pk];
+                    toFixup[pk] = key;
+                    if(toFixup.$wip) toFixup.$wip[pk] = key;
+                    //toFixup.update(response.data, true);
                     model.data.fixup[uid] = toFixup[pk];
                     model.data.store[toFixup[pk]] = toFixup;
                     delete model.data.store[uid];

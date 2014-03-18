@@ -16,7 +16,7 @@ function stormEntity(extensionFactory, stormHttp,$q,$injector) {
         if (arguments.length === 0) {
             var self = this;
             var pk = this.$model.config.key;
-            return this.$model.collection.get(this[pk], {bypass: true}, false).then(function (response) {
+            return this.$model.collection.get(this[pk],{bypass: true},false).then(function (response) {
                 return self.update(response.data, {setSaved: true});
             });
         } else {
@@ -156,10 +156,10 @@ function stormEntity(extensionFactory, stormHttp,$q,$injector) {
             this.$undo = this.$undo || [];
             if (isNumber(a[pk]) || uuidEx.test(a[pk])) {
                 this[pk] = a[pk];
-                this.$state = state.unchanged;
+                //this.$state = state.unchanged;
             } else {
                 this[pk] = uuid();
-                this.$state = state.added;
+                //this.$state = state.added;
             }
             for (var i = 1, ii = properties.length; i < ii; i++) {
                 var prop = descriptors[properties[i]];
