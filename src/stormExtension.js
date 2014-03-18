@@ -2,6 +2,7 @@ extensionFactory.$inject = ['$injector','$rootScope','linq','$http','$q'];
 function extensionFactory($injector,$rootScope,linq,$http, $q){
 
     function resolveMethod(model,fn,name){
+        fn = isArray(fn) ? fn[fn.length -1] : fn;
         var services = $injector.annotate(fn),
             args = [];
         for (var i = 0; i < services.length; i++) {
