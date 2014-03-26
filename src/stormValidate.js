@@ -91,6 +91,11 @@ validators.methods = {
             return true;
         return (/^-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/).test(val);
     },
+    firstLastName: function (val) {
+        if (!val) // not our place to judge if there is no value
+            return true;
+        return (/\w+\s+\w+/).test(val);
+    },
     creditcard: function (value, element) {
         if (!value) // not our place to judge if there is no value
             return true;
@@ -135,6 +140,7 @@ validators.messages = {
     time: 'must be a valid time',
     color: 'must Be a hex color',
     number: 'must be a number',
+    firstLastName: 'last name required',
     creditcard: 'Must be a valid creditcard number'
 };
 

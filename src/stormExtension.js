@@ -2,9 +2,11 @@ extensionFactory.$inject = ['$injector','$rootScope','linq','$http','$q'];
 function extensionFactory($injector,$rootScope,linq,$http, $q){
 
     function resolveMethod(model,fn,name){
-        fn = isArray(fn) ? fn[fn.length -1] : fn;
         var services = $injector.annotate(fn),
             args = [];
+
+        fn = isArray(fn) ? fn[fn.length -1] : fn;
+
         for (var i = 0; i < services.length; i++) {
             args[i] = null;
             if ($injector.has(services[i])) {
@@ -26,7 +28,7 @@ function extensionFactory($injector,$rootScope,linq,$http, $q){
                 //apply args(services) and callee arguments to the extension method.
                 var ret = fn.apply(this, extend([], args, arguments));
                 if (apply && !$rootScope.$$phase) $rootScope.$apply();
-                if (save) this.save();
+                if (save && this.save) this.save();
                 return ret;
             };
         }

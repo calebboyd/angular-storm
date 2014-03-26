@@ -59,7 +59,7 @@ function describe(prop, type) {
                     });
                     ret.instance = function (init) {
                         var inst = descriptor.relatedModel.collection.instance(init);
-                        console.log('descriptor', descriptor, 'not quite sure how to do this');
+                        inst[fks] = [self[pk]];
                         return inst;
                     };
                     return ret;
@@ -163,7 +163,7 @@ function entityDestructor(entity) {
 function fksConstructor(prop) {
     if (prop.needsDescriptor)
         describe(prop, tForeignKeys);
-    this[prop.name] = this.$init[prop.name] || prop.default || deepCopy(prop.value);
+    this[prop.name] = this.$init[prop.name] || prop.default || deepCopy(prop.value) || [];
     this[prop.descriptor.name] = prop.descriptor.getter.call(this);
 }
 function fksDestructor(prop, dest) {

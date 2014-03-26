@@ -31,7 +31,7 @@ forEach(validators.methods, createValidatorDirective);
 function createValidatorDirective(validatorFn, validatorName) {
     var directiveName = 'sv' + validatorName[0].toUpperCase().concat(validatorName.slice(1));
     angular.module('storm').directive(directiveName,
-        function($parse) {
+        ['$parse', function($parse) {
             return {
                 require: 'ngModel',
                 priority: -2,
@@ -65,7 +65,7 @@ function createValidatorDirective(validatorFn, validatorName) {
                     });
                 }
             };
-        }
+        }]
     );
 }
 

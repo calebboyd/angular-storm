@@ -16,7 +16,7 @@ function add(model, initWith, options) {
             store = model.data.store;
         options = options || {};
         if (initWith && initWith[pk] && store[initWith[pk]]) {
-            store[initWith[pk]].update(initWith, {updateSaved: true});
+            store[initWith[pk]].update(initWith, {setSaved: true});
             return store[initWith[pk]];
         } else if (initWith instanceof model.ctor) {
             store[initWith[pk]] = initWith;
@@ -193,8 +193,17 @@ function stormCollection(stormHttp, linq, $q, extensionFactory, $timeout) {
         return true;
     }
 
-    cFactory.addToCollection = add;
+    cFactory.attach = function(entities) {
+        var model = null;
+        if(isArray(entities)) {
+            if(entities.length > 0)
+                model = entities[0].$model;
+            else
+                model = entities.$model;
+        }
 
+        return add(model, entities);
+    };
 
     return cFactory;
 }
