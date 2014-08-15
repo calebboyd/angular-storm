@@ -16,7 +16,7 @@ function storm(stormModels, stormCollection,stormEntity) {
                         this[name] = stormEntity(model);
                     }
                     //create an injectable of the whole model. called 'modelNameModel'
-                    stormModels.register(model,name);
+                    stormModels.registerModelFactory(model,name);
                 },this);
             };
     //process the queue...

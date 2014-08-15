@@ -32,15 +32,34 @@ function stormHttp($http, stormModels, $q, $timeout) {
     function processResponse(stormObj, config, crud,promise) {
         var model = stormObj.$model,
             pk = model.config.key,
+            self,
             uid = stormObj[pk];
         switch (crud) {
             case 'create':
+                // make sure wips are added to the collection.  update their $self and add it instead
+                if(stormObj.isWip) {
+                    self = stormObj.$self;
+                    self.update(stormObj);
+                    stormObj = self;
+                }
+
                 var toFixup = add(model,stormObj,null);
                 model.data.fixup[uid] = null;
                 return promise.then(function (response) {
                     //update key only on return.... Cause it may have been edited...
                     //todo fixup will need to be outsourced to function that recursively fixes related items.
                     var key = response.data[pk];
+
+                    // fixup complex props
+                    forEach(model.properties, function(prop) {
+                        var desc = model.descriptors[prop];
+                        if(desc.type === propertyTypes.ComplexCollection) {
+                            toFixup[desc.name].each(function(x){
+                                x[desc.descriptor.foreignKey] = key;
+                            });
+                        }
+                    });
+
                     toFixup[pk] = key;
                     if(toFixup.$wip) toFixup.$wip[pk] = key;
                     //toFixup.update(response.data, true);
@@ -65,7 +84,11 @@ function stormHttp($http, stormModels, $q, $timeout) {
                 });
 
             case 'update':
-                stormObj.update(config.data);
+                if(stormObj.isWip) {
+                    self = stormObj.$self;
+                    self.update(stormObj);
+                    stormObj = self;
+                }
                 return promise.then(function (response) {
                     stormObj.update(response.data,{setSaved:true});
                     return response;//

@@ -6,6 +6,8 @@
 * @param options {Object}
 */
 function add(model, initWith, options) {
+    options = options || {};
+
     //handle multiple things being added...
     if (isArray(initWith)) {
         for (var i = 0, ii = initWith.length; i < ii; i++) {
@@ -14,7 +16,16 @@ function add(model, initWith, options) {
     } else {
         var pk = model.config.key,
             store = model.data.store;
-        options = options || {};
+
+        // use the wip data store for wip collections
+        var wipUuid = options.$wipUuid || initWith.$wipUuid || (initWith.$init && initWith.$init.$wipUuid);
+        if(model.config.complex && wipUuid) {
+            store = model.data.wips[wipUuid] = model.data.wips[wipUuid] || {};
+            if(!initWith.$wipUuid && !initWith.$init)
+                initWith = deepCopy(initWith);
+            initWith.$wipUuid = wipUuid;
+        }
+
         if (initWith && initWith[pk] && store[initWith[pk]]) {
             store[initWith[pk]].update(initWith, {setSaved: true});
             return store[initWith[pk]];
@@ -27,6 +38,40 @@ function add(model, initWith, options) {
             return init;
         }
     }
+}
+
+function remove(entity) {
+    var store = entity.$model.data.store;
+
+    // if the entity is on a wip, delete the wip version instead.
+    var wipUuid = entity.$init && entity.$init.$wipUuid;
+    if(wipUuid && entity.$model.config.complex)
+        store = entity.$model.data.wips[wipUuid];
+    else
+        var fireEvent = true;
+
+    //entity could be a mock ({ID:53}) So we need the actual ref to remove related things.
+    entity = store[entity[entity.$model.config.key]] || entity;
+    //remove hard reference.
+    delete store[entity[entity.$model.config.key]];
+    if (fireEvent && isFunction(entity.onRemove)) {
+        if (entity.onRemove() === false)
+            return false;
+    }
+    //cascading remove es6 damn that's sexy.
+    /*
+     * _.chain(entity.$model.props).where(val => val.descriptor.isOM).each(remove);
+     *
+     * */
+    var props = entity.$model.properties,
+        propsLength = props.length;
+    for (var i = 0; i < propsLength; i++) {
+        var prop = entity.$model.descriptors[props[i]];
+        if (prop.descriptor.isOM && entity[prop.name]) {
+            entity[prop.name].each(remove); // remove all child entities of this type
+        }
+    }
+    return true;
 }
 
 stormCollection.$inject = ['stormHttp', 'linq', '$q', 'extensionFactory', '$timeout'];
@@ -71,7 +116,7 @@ function stormCollection(stormHttp, linq, $q, extensionFactory, $timeout) {
                 found.update(response.data, true);
                 return found;
             }, function (err) {
-                model.collection.remove(found);
+                remove(found);
                 return $q.reject(err);
             });
             return found;
@@ -83,33 +128,6 @@ function stormCollection(stormHttp, linq, $q, extensionFactory, $timeout) {
      */
     function instance(initWith, options) {
         return new this.$model.ctor(initWith, options);
-    }
-
-    function remove(entity) {
-        delete entity.$model.data.store[entity[entity.$model.config.key]];
-        if (isFunction(entity.onRemove)) {
-            if (entity.onRemove() !== true)
-                return false;
-        }
-        //cascading remove...
-        /*
-         * _.chain(entity.$model.props).where(function(val){
-         *   return val.descriptor.isOM;
-         * }).each(function(entity){
-         *   remove(entity);
-         * });
-         *
-         * */
-        var props = entity.$model.properties,
-            propsLength = props.length;
-        for (var i = 0; i < propsLength; i++) {
-            var prop = entity.$model.descriptors[props[i]];
-            if (prop.descriptor.isOM) {
-                //todo lodash, inner and outer...
-                entity[prop.name].each(remove); // remove all child entities of this type
-            }
-        }
-        return true;
     }
 
     var queryBuilderBase = {
@@ -196,11 +214,13 @@ function stormCollection(stormHttp, linq, $q, extensionFactory, $timeout) {
     cFactory.attach = function(entities) {
         var model = null;
         if(isArray(entities)) {
-            if(entities.length > 0)
-                model = entities[0].$model;
-            else
-                model = entities.$model;
-        }
+            // make sure there are some entities
+            if(entities.length === 0)
+                return;
+
+            model = entities[0].$model;
+        } else
+            model = entities.$model;
 
         return add(model, entities);
     };

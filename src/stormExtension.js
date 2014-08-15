@@ -14,12 +14,12 @@ function extensionFactory($injector,$rootScope,linq,$http, $q){
             }
         }
         //beforeLoad beforeSave... other things
-        var apply = linq(model.config.viewWords ).any(function (v, i, a) {
-            return contains(a, v);
-        }, name);
-        var save = linq(model.config.saveWords).any(function (v, i, a) {
-            return contains(a, v);
-        }, name);
+        var apply = linq(model.config.viewWords ).any(function (v) {
+            return contains(name, v);
+        });
+        var save = linq(model.config.saveWords).any(function (v) {
+            return contains(name, v);
+        });
 
         if (!save && !apply && !args.length) {
             return fn;

@@ -10,6 +10,7 @@ function describe(prop, type) {
         split = prop.model.config.split;
     switch (type) {
         case tCollection:
+        case tComplexCollection:
             //don wanna write . so many times.
             var fk, fks, isOM, isMM;
             //Find related type, configuration OR inference
@@ -20,32 +21,44 @@ function describe(prop, type) {
             descriptor.foreignKey = fk = descriptor.foreignKey || prop.model.modelName + split + pk;
             descriptor.foreignKeys = fks = descriptor.foreignKeys || pluralize(fk);
 
-            if (descriptor.complex === true) {
+            if (type === tComplexCollection) {
+                descriptor.relatedModel.config.complex = true;
                 var passed = this.$init[prop.name] || deepCopy(prop.value) || [];
+                if(passed.collect) passed = passed.collect(function(x){return projectPojo(x);}).toArray();
                 for (var i = 0, ii = passed.length; i < ii; i++) {
-                    add(descriptor.relatedModel,passed[i], {fk:{name:descriptor.foreignKey,value:this[pk]}});
+                    add(descriptor.relatedModel, passed[i], {fk:{name:descriptor.foreignKey,value:this[pk]},$wipUuid:this.$wipUuid});
                 }
             }
             if (hasOwnProperty.call(descriptor.relatedModel.descriptors, fk) || descriptor.complex) {
                 descriptor.isOM = true;
                 descriptor.getter = function () {
-                    var self = this;
-                    var ret = descriptor.relatedModel.collection.where(function (val) {
+                    var self = this,
+                        col = descriptor.relatedModel.collection,
+                        wipUuid = this.$wipUuid;
+                    if(type === tComplexCollection && wipUuid) {
+                        var wips = descriptor.relatedModel.data.wips;
+                        wips[wipUuid] = wips[wipUuid] || {};
+                        // TODO: I used Lazy here... :(
+                        col = Lazy(wips[wipUuid]);
+                    }
+
+                    var ret = col.where(function (val) {
                         return val[fk] == self[pk];
                     });
                     ret.instance = function (init) {
+                        init = init || {};
+                        if(init[fk])
+                            console.warn('foreign key is being overridden!', init[fk], self[pk]);
+                        init[fk] = self[pk];
+                        if(wipUuid)
+                            init.$wipUuid = wipUuid;
                         var inst = descriptor.relatedModel.collection.instance(init);
-                        inst[fk] = self[pk];
                         return inst;
                     };
+
                     //setup collection extensions
-                    // TODO HACK!!!! temporary fix since we can't re-create the collection extensions
-                    forEach(prop.model.collectionExtensions, function (val, name) {
-                        //todo refactor applying this type of mixin
-                        this[name] = function () {
-                            return prop.model.collection[name].apply(this, arguments);
-                        };
-                    }, ret);
+                    applyExtentions(prop, ret);
+                    ret.$model = descriptor.relatedModel;
                     return ret;
                 };
             }
@@ -62,6 +75,10 @@ function describe(prop, type) {
                         inst[fks] = [self[pk]];
                         return inst;
                     };
+
+                    //setup collection extensions
+                    applyExtentions(prop, ret);
+                    ret.$model = this.$model;
                     return ret;
                 };
             }
@@ -74,7 +91,7 @@ function describe(prop, type) {
             descriptor.relatedModel = prop.model.config.getModel(descriptor.type || descriptor.name);
             descriptor.getter = function () {
                 var self = this;
-                return descriptor.relatedModel.collection.data[self[prop.name]];
+                return descriptor.relatedModel.data.store[self[prop.name]];
             };
             break;
         case tForeignKeys:
@@ -90,20 +107,30 @@ function describe(prop, type) {
             break;
         case tArray:
             break;
-        case tEntity:
+        case tComplex:
             descriptor.type = descriptor.type || prop.name;
             descriptor.foreignKey = descriptor.foreignKey || prop.model.modelName + split+pk;
             descriptor.relatedModel = prop.model.config.getModel(descriptor.type);
             descriptor.getter = function(){
                 var self = this;
-                var test = descriptor.relatedModel.collection.firstOrDefault(function(x){
+                var test = descriptor.relatedModel.collection.where(function(x){
                     return x[descriptor.foreignKey] === self[pk];
-                },null);
+                }).first();
                 console.log('getting entity',test);
                 return test;
             };
             break;
     }
+}
+
+function applyExtentions(prop, ret) {
+    // TODO HACK!!!! temporary fix since we can't re-create the collection extensions
+    forEach(prop.model.collectionExtensions, function (val, name) {
+        //todo refactor applying this type of mixin
+        this[name] = function () {
+            return prop.model.collection[name].apply(this, arguments);
+        };
+    }, ret);
 }
 
 
@@ -112,9 +139,6 @@ function describe(prop, type) {
  * @param prop
  */
 function collectionConstructor(prop) {
-    if (prop.descriptor.complex === true) {
-        describe.call(this, prop, tCollection);
-    }
     if (prop.needsDescriptor)
         describe(prop, tCollection);
     this[prop.name] = prop.descriptor.getter.call(this);
@@ -124,27 +148,46 @@ function collectionConstructor(prop) {
  * @param prop
  */
 function collectionDestructor(prop, dest) {
-    if (prop.descriptor.complex === true) {
-        var val = [];
-        this[prop.name].each(function (value, idx) {
-            delete value[prop.descriptor.foreignKey];
-            val.push(prop.descriptor.type[DESTRUCTOR](value));
-        });
-        dest[prop.name] = val;
-    }
-
-}
-//Generate wip.... Only needed on complex type entity models.
-function collectionWip(prop) {
 
 }
 
 
 /**
+ * Entity Collection Constructor
+ * Used for complex collections
+ * @param prop
+ */
+function complexCollectionConstructor(prop) {
+    if(this[prop.name])
+        this[prop.name].each(function(x) {remove(x);});
+    describe.call(this, prop, tComplexCollection);
+    this[prop.name] = prop.descriptor.getter.call(this);
+}
+
+function complexCollectionDestructor(prop, dest) {
+    var val = [];
+    this[prop.name].each(function (value, idx) {
+        // todo: take care of exclusions so that the ID(pk) isn't included in the pojo
+        var pojo = projectPojo(value);
+        delete pojo[prop.descriptor.foreignKey];
+        var pk = prop.model.config.key;
+        if(prop.model.descriptors[pk].config.auto)
+            delete pojo[pk];
+        val.push(pojo);
+    });
+    dest[prop.name] = val;
+}
+
+function complexCollectionWip(prop) {
+    describe.call(this, prop, tComplexCollection);
+    this[prop.name] = prop.descriptor.getter.call(this);
+}
+
+/**
  * Entity Constructor
  * @param prop
  */
-function entityConstructor(prop) {
+function complexConstructor(prop) {
     if (prop.needsDescriptor)
         describe(prop, tEntity);
     defineProperty(this,prop.name,{
@@ -153,10 +196,14 @@ function entityConstructor(prop) {
 }
 /**
  * Entity Destructor
- * @param entity
+ * @param complex
  */
-function entityDestructor(entity) {
+function complexDestructor(prop, dest) {
     console.log('entity destructor');
+}
+
+function complexWip(prop) {
+    console.log('entity WIP');
 }
 
 
@@ -174,7 +221,7 @@ function fksDestructor(prop, dest) {
 function fkConstructor(prop) {
     if (prop.needsDescriptor)
         describe(prop, tForeignKey);
-    this[prop.name] = this.$init[prop.name] || prop.default || deepCopy(prop.value);
+    this[prop.name] = this.$init[prop.name] || (isFunction(prop.value) ? prop.default : deepCopy(prop.value));
     //fk property is actually a 'getter'
     defineProperty(this, prop.descriptor.name, {
         configurable: true,
@@ -200,6 +247,7 @@ function arrayConstructor(prop) {
     }
     var passed = this.$init[prop.name] || deepCopy(prop.value) || [];
     if (!val) val = [];
+    val.$init = passed;
     var ctor = prop.descriptor.type && prop.descriptor.type[CONSTRUCTOR];
 
     for (var i = 0, ii = passed.length; i < ii; i++) {
@@ -249,36 +297,35 @@ var propertyTypes = {
     Scalar: tScalar,
     Collection: [
         collectionConstructor,
-        collectionDestructor,
-        collectionWip
+        collectionDestructor
+    ],
+    ComplexCollection: [
+        complexCollectionConstructor,
+        complexCollectionDestructor,
+        complexCollectionWip
     ],
     ForeignKey: [
         fkConstructor,
-        fkDestructor,
-        noop//fkWip
+        fkDestructor
     ],
     ForeignKeys: [
         fksConstructor,
-        fksDestructor,
-        noop//fksWip
+        fksDestructor
     ],
-    Entity: [
-        entityConstructor,
-        entityDestructor,
-        noop//entityWip
+    Complex: [
+        complexConstructor,
+        complexDestructor,
+        complexWip
     ],
     Array: [
         arrayConstructor,
-        arrayDestructor,
-        noop//arrayWip
+        arrayDestructor
     ],
     Date: [
         dateConstructor,
-        dateDestructor,
-        noop//dateWip
+        dateDestructor
     ],
     RegExp: [
-        noop,
         noop,
         noop
     ]

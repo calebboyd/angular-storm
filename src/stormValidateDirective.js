@@ -30,8 +30,14 @@ function validateDirective(stormModels, $compile){
 forEach(validators.methods, createValidatorDirective);
 function createValidatorDirective(validatorFn, validatorName) {
     var directiveName = 'sv' + validatorName[0].toUpperCase().concat(validatorName.slice(1));
-    angular.module('storm').directive(directiveName,
-        ['$parse', function($parse) {
+    var module = angular.module('storm');
+    if(module.register){
+        module.register.directive(directiveName,directive);
+    }else{
+        module.directive(directiveName,directive);
+    }
+    directive.$inject = ['$parse'];
+    function directive($parse) {
             return {
                 require: 'ngModel',
                 priority: -2,
@@ -65,8 +71,7 @@ function createValidatorDirective(validatorFn, validatorName) {
                     });
                 }
             };
-        }]
-    );
+        }
 }
 
 function getEntityAndPropertyNames(ngModel, entityType) {

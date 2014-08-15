@@ -3,7 +3,7 @@ validators.methods = {
     required: function (val, arg) {
         if(arg === false)
             return true;
-        if (!val) {
+        if (val === undefined || val === null || val === '') {
             return false;
         }
         else if (typeof (val) == 'object') {
@@ -135,16 +135,19 @@ validators.messages = {
     max: 'too high',
     step: '',
     pattern: '',
-    dateISO: 'must Be a valid DateISO',
+    dateISO: 'must be a valid DateISO',
     date: 'must be a Date',
     time: 'must be a valid time',
-    color: 'must Be a hex color',
+    color: 'must be a hex color',
     number: 'must be a number',
     firstLastName: 'last name required',
     creditcard: 'Must be a valid creditcard number'
 };
 
 function isValid(property) {
+    if(!property)
+        property = this.$model.properties;
+
     return getValidationErrors.call(this, property).length === 0;
 }
 
@@ -153,7 +156,7 @@ function getValidationErrors(property) {
 
     // Invididual property validation
     if (isString(property)) {
-        var prop = this.$model.props[property],
+        var prop = this.$model.descriptors[property],
             propValidators = prop.validators;
 
         for (var validatorName in propValidators) {
@@ -161,6 +164,8 @@ function getValidationErrors(property) {
                 continue;
 
             var validatorObj = propValidators[validatorName];
+            if(validatorObj === undefined) // we must have an arg to pass to the validator!
+                continue;
 
             if (!validators.methods[validatorName](this[property], getValidatorValue(validatorObj))) {
                 errors.push(

@@ -1,5 +1,28 @@
-stormEntity.$inject = ['extensionFactory', 'stormHttp','$q','$injector'];
+/**
+ * Deconstructs object into its original dto
+ * @param entity
+ * @param deep copies related things too...
+ */
+function projectPojo(entity, deep) {
+    var projection = {},
+        descriptors = entity.$model.descriptors,
+        properties = entity.$model.properties,
+        pk = entity.$model.config.key;
+    projection[pk] = entity[pk];
+    for (var i = 0, ii = properties.length; i < ii; i++) {
+        var descriptor = descriptors[properties[i]],
+            name = descriptor.name;
+        //scalar or not scalar?
+        if (descriptor.type == tScalar) {
+            projection[name] = entity[name];
+        } else {
+            descriptor.type[DESTRUCTOR].call(entity, descriptor, projection);
+        }
+    }
+    return projection;
+}
 
+stormEntity.$inject = ['extensionFactory', 'stormHttp','$q','$injector'];
 function stormEntity(extensionFactory, stormHttp,$q,$injector) {
 
     function removeProperties(object, properties) {
@@ -39,13 +62,18 @@ function stormEntity(extensionFactory, stormHttp,$q,$injector) {
 
         }
         else {
-
+            var pojo = projectPojo(this);
+            delete pojo[this.$model.config.key];
+            return this.$model.collection.instance(pojo);
         }
+    }
 
+    function pojoString() {
+        var pojo = projectPojo(this);
+        return JSON.stringify(pojo);
     }
 
     var wipProto = {
-        isWip: true,
         wip: function () {
             throw new Error("Don't $wip your $self fool");
         },
@@ -54,6 +82,11 @@ function stormEntity(extensionFactory, stormHttp,$q,$injector) {
                 delete this.$self.$wip;
             }
             return false;
+        },
+        isolate: function() {
+            if (this.isWip && this.$self.$wip === this) {
+                delete this.$self.$wip;
+            }
         }
     };
 
@@ -63,42 +96,25 @@ function stormEntity(extensionFactory, stormHttp,$q,$injector) {
      * With links to attached things... But if this is 'open' then linked things can be changed no problem.
      * @returns {*|entityPrototype.$wip}
      */
-    function wip() {
+    function wip(options) {
+        options = options || {};
+        // if the user wants a fresh wip, then isolate the old one
+        if(options && options.fresh && this.$wip)
+            this.$wip.isolate();
+
+        // return the current wip if one already exists
         if (this.$wip) return this.$wip;
-        var aWip = this.$wip = new this.$model.ctor(this.$saved || this);
+
+        // otherwise, create a new wip
+        var initWith = (options.useLocal ? this : this.saved) || this;
+        var aWip = this.$wip = new this.$model.ctor(initWith, {isWip: true});
         this.$wip.$self = this;
         extend(aWip, wipProto);
         return aWip;
     }
 
-
-    /**
-     * Invokes ENTITY.beforeSave();
-     * Deconstructs object into its original dto
-     * @param entity
-     * @param deep copies related things too...
-     */
-    function projectPojo(entity, deep) {
-        var projection = {},
-            descriptors = entity.$model.descriptors,
-            properties = entity.$model.properties,
-            pk = entity.$model.config.key;
-        projection[pk] = entity[pk];
-        for (var i = 0, ii = properties.length; i < ii; i++) {
-            var descriptor = descriptors[properties[i]],
-                name = descriptor.name;
-            //scalar or not scalar?
-            if (descriptor.type == tScalar) {
-                projection[name] = entity[name];
-            } else {
-                descriptor.type[DESTRUCTOR].call(entity, descriptor, projection);
-            }
-        }
-        return projection;
-    }
-
     function save() {
-        return lazyExecute.call(this, uuidEx.test(this[this.$model.config.key]) && 'create' || 'update');
+        return lazyExecute.call(this, this.hasUuid() && 'create' || 'update');
     }
 
     function destroy() {
@@ -111,47 +127,77 @@ function stormEntity(extensionFactory, stormHttp,$q,$injector) {
             entity = this,
             pk = entity.$model.config.key,
             callMe = (isDelete ? entity.beforeDestroy : entity.beforeSave) || noop,
-            beforeExecutePromise = $q.when(callMe.call(entity));
-        beforeExecutePromise.then(function () {
-            var pk = entity.$model.config.key,
-            //todo this logic fails when pk's are acutally guids..
-                isCreate = uuidEx.test(entity[pk]),
-                config = {
-                    data: !isDelete && projectPojo(entity, false),
-                    action: isCreate || entity.$model.config.singleton ? '/' : '/'+entity[pk]
-                },
-                exclude = isCreate && entity.$model.config.remote.create.exclude || entity.$model.config.remote.update.exclude;
-            if (exclude.length > 0 && config.data ) removeProperties(config.data, exclude);
-            return stormHttp[type](entity,config).then(function (data) {
-                deferred.resolve(data);
-            }, function (err) {
-                deferred.reject(err);
+            beforeExecutePromise = $q.when(callMe.call(entity, deferred.promise));
+
+        // handle complex entities locally
+        if(entity.$model.config.complex) {
+            if(isDelete)
+                remove(entity);
+            else if(isCreate)
+                add(entity.$model, entity, null);
+
+            deferred.resolve($q.when(entity.$model.collection));
+        } else {
+            // lazily execute after 'before' conditions are met
+            beforeExecutePromise.then(function (exec) {
+                if(exec === false) return $q.reject();
+                var pk = entity.$model.config.key,
+                //todo this logic fails when pk's are acutally guids..
+                    isCreate = uuidEx.test(entity[pk]),
+                    config = {
+                        data: !isDelete && projectPojo(entity, false),
+                        action: isCreate || entity.$model.config.singleton ? '/' : '/'+entity[pk]
+                    },
+                    exclude = isCreate && entity.$model.config.remote.create.exclude || entity.$model.config.remote.update.exclude;
+                if (exclude.length > 0 && config.data ) removeProperties(config.data, exclude);
+
+                return stormHttp[type](entity,config).then(function (data) {
+                    deferred.resolve(data);
+                }, function (err) {
+                    deferred.reject(err);
+                });
             });
-        });
+        }
+
         return {
             local: beforeExecutePromise,
             remote: deferred.promise
         };
     }
 
+    function hasUuid() {
+        return uuidEx.test(this[this.$model.config.key]);
+    }
+
     var entityPrototype = {
-        isValid: noop,//isValid,
+        isValid: isValid,
         getValidationErrors: noop,//getValidationErrors,
         save: save,
         destroy: destroy,
         revert: revert,
         update: update,
         copyEntity: copyEntity,
+        toString: pojoString,
+        hasUuid: hasUuid,
         wip: wip
     };
+
     function stormCtor(model){
         var pk = model.config.key,
             properties = model.properties,
             descriptors = model.descriptors;
 
         return function stormEntity(initWith, options) {
-            if (options && options.setSaved)
+            options = options || {};
+            if (options.setSaved)
                 this.$saved = initWith || {};
+
+            // handle wips a little differently
+            if(options.isWip) {
+                this.$wipUuid = uuid();
+                this.isWip = true;
+            }
+
             var a = this.$init = initWith || {};
             this.$undo = this.$undo || [];
             if (isNumber(a[pk]) || uuidEx.test(a[pk])) {
@@ -169,12 +215,17 @@ function stormEntity(extensionFactory, stormHttp,$q,$injector) {
                     if (isFunction(prop.value)) {
                         prop.default = $injector.invoke(prop.value);
                     }
-                    prop.type[CONSTRUCTOR].call(this, prop);
+
+                    var constructor = this.isWip && prop.type[WIP] || prop.type[CONSTRUCTOR];
+                    constructor.call(this, prop);
                 }
             }
             if (options && options.fk) {
                 this[options.fk.name] = options.fk.value;
             }
+
+            if(isFunction(this.constructed))
+                this.constructed(initWith, options);
         };
     }
 
@@ -206,7 +257,7 @@ function stormEntity(extensionFactory, stormHttp,$q,$injector) {
                 instance.update(response.data,{setSaved:true});
                 return instance;
             },function(err){
-                $q.reject(err);
+                return $q.reject(err);
             });
         };
         model.data.store = instance = new model.ctor();

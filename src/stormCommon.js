@@ -58,7 +58,8 @@ var isDefined = angular.isDefined,
     tArray = 2,
     tForeignKey = 3,
     tForeignKeys = 4,
-    tEntity = 5,
+    tComplex = 5,
+    tComplexCollection = 6,
 //State enumerators
     sAdded = 0,
     sUnchanged = 1,
@@ -345,20 +346,29 @@ function uuid() {
 }
 
 //Module Declaration
-angular.module('storm.util', ['ng']).constant('linq', from);
-angular.module('storm', ['storm.util'])
-    .run(['storm', function (storm) {
+function valueCollector(val){
+    return val;
+}
+Lazy.ObjectLikeSequence.prototype.toArray = function(){
+    return this.collect(valueCollector).toArray();
+};
+//WTF - why isn't this a default?
+Lazy.Sequence.prototype.count = Lazy.Sequence.prototype.size;
+angular.module('storm.util', ['ng']).constant('linq',Lazy);
+angular.module('storm', ['storm.util']).config(['$compileProvider',function(provide){
+    angular.module('storm').register = {
+        directive: provide.directive
+    };
+}]).run(['storm', function (storm) {
         //todo change to noop
         //todo HACK
         window.storm = storm;
     }]);
 
 //setup filters...
-var stormFilterProvider = angular.module('storm.util').filter;
-'toArray toDictionary where any aggregate all average at contains count distinct except some take sum skip select selectMany min max last'.split(' ')
-    .forEach(closeFilters);
+'toArray where any take'.split(' ').forEach(closeFilters);
 function closeFilters(name, alias) {
-    stormFilterProvider(isString(alias) ? alias : name, function () {
+    angular.module('storm.util').filter(isString(alias) ? alias : name, function () {
         return function (o, clause) {
             if (o && isFunction(o[name]))
                 return o[name](clause);
@@ -367,5 +377,3 @@ function closeFilters(name, alias) {
     });
 }
 closeFilters('toArray','array');
-closeFilters('toDictionary','hash');
-

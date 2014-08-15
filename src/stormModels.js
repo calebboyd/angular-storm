@@ -2,7 +2,7 @@
  * The following are key names of attributes that acceptable in a property configuration
  * @type {Array}
  */
-var configurationAttrs = "rest eager persist basePath key split save view remote local queryBuilder".split(' '),
+var configurationAttrs = "rest eager persist basePath key split save view remote local queryBuilder auto".split(' '),
     validationAttrs = "required minLength maxLength min max step pattern dateISO date color number creditcard".split(' '),
     descriptorAttrs = "type foreignKey foreignKeys name complex nested".split(' ');
 
@@ -180,19 +180,23 @@ function stormModels($provide) {
             }
             //append pk id to beginning of ordered array.
             //todo Managing Entity Primary Keys
-            props.unshift(model.config.key);
-            descriptors[model.config.key] = new PropertyDescriptor(model.config.key, propertyTypes.Key, {}, model);
+            if(!descriptors[model.config.key]) {
+                props.unshift(model.config.key);
+                descriptors[model.config.key] = new PropertyDescriptor(model.config.key, propertyTypes.Key, {auto: true}, model);
+            }
         }
         //save what we did..
         extend(modelBases, models);
         //return what we did.
         return models;
     }
+    this.addValidator = addValidator;
+    this.uuid = uuid;
     this.$get = $get;
     $get.$inject = ['$injector','linq'];
     function $get($injector,linq) {
         var modelIterable = linq(modelBases);
-        function register(model,name){
+        function registerModelFactory(model,name){
             name = name+'Model';
             if($injector.has(name)) throw new Error("An injectable already exists with that name: "+ name);
             $provide.factory(name,function(){
@@ -224,8 +228,9 @@ function stormModels($provide) {
             get: getModel,
             has: hasModel,
             define: defineModels,
-            register: register,
-            config: config
+            registerModelFactory: registerModelFactory,
+            config: config,
+            uuid:uuid
         };
     }
 }
